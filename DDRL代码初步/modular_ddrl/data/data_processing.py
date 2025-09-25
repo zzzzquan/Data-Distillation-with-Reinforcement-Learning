@@ -2,6 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import os
+import numpy as np
 
 def get_data_transforms():
     """
@@ -56,6 +57,38 @@ def load_cifar10_dataset(transform_train, transform_test):
         testset = torchvision.datasets.FakeData(size=2000, image_size=(3, 32, 32), num_classes=10, transform=transform_test)
         
     return trainset, testset
+
+
+def select_data_by_ipc(dataset, ipc=10):
+    """
+    按每个类别的图像数量(IPC)选择数据
+    
+    Args:
+        dataset: 原始数据集
+        ipc: 每个类别的图像数量
+    
+    Returns:
+        torch.utils.data.Dataset: 选择后的数据集
+    """
+    # 获取所有标签
+    labels = np.array(dataset.targets)
+    
+    # 为每个类别选择指定数量的样本
+    selected_indices = []
+    for class_idx in range(10):  # CIFAR-10有10个类别
+        class_indices = np.where(labels == class_idx)[0]
+        # 随机选择ipc个样本
+        if len(class_indices) >= ipc:
+            selected_class_indices = np.random.choice(class_indices, ipc, replace=False)
+        else:
+            # 如果某个类别的样本不足ipc个，则选择所有样本
+            selected_class_indices = class_indices
+        selected_indices.extend(selected_class_indices)
+    
+    # 创建子集
+    selected_indices = torch.tensor(selected_indices)
+    subset = torch.utils.data.Subset(dataset, selected_indices)
+    return subset
 
 
 def create_data_loaders(train_dataset, val_dataset, testset, STATE_BATCH_SIZE, batch_size_val=100, batch_size_test=100):
