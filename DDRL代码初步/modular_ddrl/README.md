@@ -1,65 +1,48 @@
-# 模块化强化学习数据蒸馏 (Modular DDRL) 实现
+# Data Distillation with Reinforcement Learning
 
-这个项目展示了如何将基于强化学习的数据蒸馏算法实现模块化，以提高代码的可维护性和可扩展性。
+## 使用说明
 
-## 项目结构
+### 基本用法
 
-```
-modular_ddrl/
-├── config.py                 # 配置文件，包含超参数和设备设置
-├── main.py                   # 主程序入口
-├── requirements.txt          # 项目依赖
-├── data/                     # 数据处理模块
-│   ├── __init__.py
-│   └── data_processing.py    # 数据加载和预处理
-├── models/                   # 模型定义模块
-│   ├── __init__.py
-│   ├── student_network.py    # 学生网络模型
-│   └── policy_network.py     # 策略网络模型
-└── utils/                    # 工具函数模块
-    ├── __init__.py
-    ├── evaluation.py         # 评估函数
-    └── training.py           # 训练函数
+```bash
+python main.py --dataset=CIFAR10 --ipc=10
 ```
 
-## 核心概念
+### IPC=50 (P=5) 的命令示例
 
-1. **学生网络 (Student Network)**: 用于学习蒸馏数据的简化模型
-2. **策略网络 (Policy Network)**: 通过强化学习选择最有价值的训练样本
-3. **REINFORCE算法**: 用于更新策略网络的强化学习算法
-4. **数据蒸馏**: 从大数据集中选择最有价值的样本子集用于训练
+```bash
+CUDA_VISIBLE_DEVICES=0 python main.py --dataset=CIFAR10 --ipc=50 --num_episodes=50 --state_batch_size=256 --k_steps=20 --lr_policy=1e-4 --lr_student=1e-3 --distillation_ratio=0.5 --mini_batch_size=64 --cuda_device=0 --seed=42 --num_intervals=5 --root_log_dir=logged_files
+```
 
-## 实现步骤
+### 参数说明
 
-1. **初始化**: 创建策略网络和学生网络
-2. **状态获取**: 从训练集中获取一批样本作为当前状态
-3. **动作生成**: 策略网络为每个样本生成选择概率，通过采样得到动作
-4. **数据蒸馏**: 根据动作选择样本，形成蒸馏数据集
-5. **学生网络训练**: 使用蒸馏数据集训练学生网络
-6. **奖励计算**: 在验证集上评估学生网络性能作为奖励
-7. **策略更新**: 使用REINFORCE算法和奖励更新策略网络
+- `--dataset`: 数据集名称 (默认: CIFAR10)
+- `--ipc`: 每个类别的图像数量 (Images Per Class) (默认: 10)
+- `--num_episodes`: 总训练轮数 (默认: 50)
+- `--state_batch_size`: 状态批次大小 (默认: 256)
+- `--k_steps`: 学生网络训练步数 (默认: 20)
+- `--lr_policy`: 策略网络学习率 (默认: 1e-4)
+- `--lr_student`: 学生网络学习率 (默认: 1e-3)
+- `--distillation_ratio`: 蒸馏比例 (默认: 0.5)
+- `--mini_batch_size`: 学生网络训练的mini-batch大小 (默认: 64)
+- `--cuda_device`: CUDA设备ID (默认: 0)
+- `--seed`: 随机种子 (默认: 42)
+- `--num_intervals`: 评估间隔 (默认: 5)
+- `--root_log_dir`: 日志文件目录 (默认: logged_files)
 
-## 使用方法
+### 示例命令
 
-1. 安装依赖:
-   ```
-   pip install -r requirements.txt
-   ```
+#### IPC=10 (默认)
+```bash
+python main.py
+```
 
-2. 运行训练:
-   ```
-   python main.py
-   ```
+#### IPC=50
+```bash
+python main.py --ipc=50
+```
 
-## 代码特点
-
-- **模块化设计**: 将网络模型、数据处理、训练和评估功能分离到不同模块
-- **可配置性**: 超参数集中定义在config.py中，便于调整
-- **可扩展性**: 每个模块都可以独立修改和扩展
-- **清晰的接口**: 每个函数都有明确的输入输出参数说明
-
-## 注意事项
-
-- 训练时间可能较长，建议在GPU上运行
-- 可以通过调整config.py中的超参数来优化性能
-- 当前实现使用CIFAR-10数据集，可以替换为其他数据集
+#### IPC=50 with custom parameters
+```bash
+python main.py --ipc=50 --num_episodes=100 --lr_policy=5e-5 --lr_student=5e-4
+```

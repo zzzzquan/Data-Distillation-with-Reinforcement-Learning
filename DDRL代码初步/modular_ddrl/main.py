@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import random
 import time
+import argparse
 from torch.distributions import Bernoulli
 
 # 导入自定义模块
@@ -17,16 +18,55 @@ from utils.training import train_student, train_policy
 from config import STATE_BATCH_SIZE, K_STEPS, NUM_EPISODES, LEARNING_RATE_POLICY, LEARNING_RATE_STUDENT
 from config import DISTILLATION_RATIO, MINI_BATCH_SIZE, IPC, DEVICE
 
-# 设置随机种子以确保结果可复现
-torch.manual_seed(42)
-np.random.seed(42)
-random.seed(42)
+def parse_args():
+    parser = argparse.ArgumentParser(description='Data Distillation with Reinforcement Learning')
+    
+    # 数据集参数
+    parser.add_argument('--dataset', type=str, default='CIFAR10', help='数据集名称')
+    parser.add_argument('--ipc', type=int, default=10, help='每个类别的图像数量 (Images Per Class)')
+    
+    # 训练参数
+    parser.add_argument('--num_episodes', type=int, default=NUM_EPISODES, help='总训练轮数')
+    parser.add_argument('--state_batch_size', type=int, default=STATE_BATCH_SIZE, help='状态批次大小')
+    parser.add_argument('--k_steps', type=int, default=K_STEPS, help='学生网络训练步数')
+    parser.add_argument('--lr_policy', type=float, default=LEARNING_RATE_POLICY, help='策略网络学习率')
+    parser.add_argument('--lr_student', type=float, default=LEARNING_RATE_STUDENT, help='学生网络学习率')
+    parser.add_argument('--distillation_ratio', type=float, default=DISTILLATION_RATIO, help='蒸馏比例')
+    parser.add_argument('--mini_batch_size', type=int, default=MINI_BATCH_SIZE, help='学生网络训练的mini-batch大小')
+    
+    # 设备参数
+    parser.add_argument('--cuda_device', type=int, default=0, help='CUDA设备ID')
+    
+    # 其他参数
+    parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('--root_log_dir', type=str, default='logged_files', help='日志文件目录')
+    parser.add_argument('--num_intervals', type=int, default=5, help='评估间隔')
+    
+    return parser.parse_args()
 
-# 使用配置中的设备
-device = DEVICE
-print(f"Using device: {device}")
+# 设置随机种子以确保结果可复现
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
 def main():
+    # 解析命令行参数
+    args = parse_args()
+    
+    # 设置随机种子
+    set_seed(args.seed)
+    
+    # 设置设备
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{args.cuda_device}")
+    else:
+        device = torch.device("cpu")
+    print(f"Using device: {device}")
+    
     # 获取数据预处理变换
     transform_train, transform_test = get_data_transforms()
     
@@ -34,9 +74,9 @@ def main():
     trainset, testset = load_cifar10_dataset(transform_train, transform_test)
     
     # 按IPC标准选择训练数据
-    print(f"按IPC={IPC}标准选择训练数据...")
-    condensed_trainset = select_data_by_ipc(trainset, ipc=IPC)
-    print(f"浓缩数据集大小: {len(condensed_trainset)} (每类{IPC}张图像)")
+    print(f"按IPC={args.ipc}标准选择训练数据...")
+    condensed_trainset = select_data_by_ipc(trainset, ipc=args.ipc)
+    print(f"浓缩数据集大小: {len(condensed_trainset)} (每类{args.ipc}张图像)")
     
     # 划分训练集和验证集（90%训练，10%验证）
     train_size = int(0.9 * len(condensed_trainset))
@@ -45,7 +85,7 @@ def main():
     
     # 创建数据加载器
     train_loader, val_loader, test_loader = create_data_loaders(
-        train_dataset, val_dataset, testset, STATE_BATCH_SIZE)
+        train_dataset, val_dataset, testset, args.state_batch_size)
     
     print(f"训练集大小: {len(train_dataset)}")
     print(f"验证集大小: {len(val_dataset)}")
@@ -56,7 +96,7 @@ def main():
     
     # 初始化网络
     policy_net = PolicyNetwork().to(device)
-    policy_optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE_POLICY)
+    policy_optimizer = optim.Adam(policy_net.parameters(), lr=args.lr_policy)
     
     # 损失函数
     criterion = nn.CrossEntropyLoss()
@@ -68,7 +108,7 @@ def main():
     # 创建一个固定的训练数据加载器迭代器
     train_loader_iter = iter(train_loader)
     
-    for episode in range(NUM_EPISODES):
+    for episode in range(args.num_episodes):
         start_time = time.time()
         
         # 第一步：获取状态 (Get State)
@@ -86,7 +126,7 @@ def main():
         reward, avg_loss, selected_indices, log_probs = train_policy(
             policy_net, student_net, policy_optimizer, None,
             state_data, state_labels, val_loader, criterion,
-            LEARNING_RATE_STUDENT, K_STEPS, DISTILLATION_RATIO, MINI_BATCH_SIZE, device
+            args.lr_student, args.k_steps, args.distillation_ratio, args.mini_batch_size, device
         )
         
         # 记录奖励和蒸馏批次大小
@@ -98,7 +138,7 @@ def main():
             avg_reward = np.mean(reward_history[-10:]) if len(reward_history) >= 10 else np.mean(reward_history)
             avg_distilled_size = np.mean(distilled_sizes[-10:]) if len(distilled_sizes) >= 10 else np.mean(distilled_sizes)
             elapsed_time = time.time() - start_time
-            print(f'轮数 [{episode+1}/{NUM_EPISODES}], 奖励: {reward:.2f}%, 平均奖励: {avg_reward:.2f}%, '
+            print(f'轮数 [{episode+1}/{args.num_episodes}], 奖励: {reward:.2f}%, 平均奖励: {avg_reward:.2f}%, '
                   f'蒸馏批次大小: {len(selected_indices)} (平均: {avg_distilled_size:.1f}), '
                   f'学生网络损失: {avg_loss:.4f}, 耗时: {elapsed_time:.2f}秒')
     
@@ -113,7 +153,7 @@ def main():
     print("在验证集上测试最终学生网络的准确度...")
     final_student_net = StudentNetwork().to(device)
     # 重新训练最终学生网络以获得更好的性能评估
-    final_optimizer = optim.Adam(final_student_net.parameters(), lr=LEARNING_RATE_STUDENT)
+    final_optimizer = optim.Adam(final_student_net.parameters(), lr=args.lr_student)
     
     # 使用策略网络选择浓缩数据进行训练
     with torch.no_grad():
@@ -135,17 +175,17 @@ def main():
         
         if len(distilled_data) > 0:
             distilled_dataset = torch.utils.data.TensorDataset(distilled_data, distilled_labels)
-            distilled_loader = torch.utils.data.DataLoader(distilled_dataset, batch_size=min(MINI_BATCH_SIZE, len(distilled_data)), shuffle=True)
+            distilled_loader = torch.utils.data.DataLoader(distilled_dataset, batch_size=min(args.mini_batch_size, len(distilled_data)), shuffle=True)
         else:
             distilled_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(state_data, state_labels), 
-                                                          batch_size=MINI_BATCH_SIZE, shuffle=True)
+                                                          batch_size=args.mini_batch_size, shuffle=True)
     
     # 训练最终学生网络
     print("训练最终学生网络...")
-    for epoch in range(5):  # 训练5个epoch进行评估
-        avg_loss = train_student(final_student_net, distilled_loader, final_optimizer, criterion, K_STEPS, device)
+    for epoch in range(args.num_intervals):  # 使用num_intervals参数控制训练epoch数
+        avg_loss = train_student(final_student_net, distilled_loader, final_optimizer, criterion, args.k_steps, device)
         val_accuracy = evaluate_student(final_student_net, val_loader, device)
-        print(f'最终学生网络训练 Epoch [{epoch+1}/5], 损失: {avg_loss:.4f}, 验证集准确度: {val_accuracy:.2f}%')
+        print(f'最终学生网络训练 Epoch [{epoch+1}/{args.num_intervals}], 损失: {avg_loss:.4f}, 验证集准确度: {val_accuracy:.2f}%')
     
     # 测试集准确度
     test_accuracy = evaluate_student(final_student_net, test_loader, device)
